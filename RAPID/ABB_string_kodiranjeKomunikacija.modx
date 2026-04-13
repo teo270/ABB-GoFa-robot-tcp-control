@@ -1,0 +1,275 @@
+MODULE drugi
+!CONST robtarget myRobtarget:=[[100,200,300],[1,0,0,0],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+
+    
+
+    VAR socketdev server_socket;
+    VAR socketdev client_socket;
+    VAR string client_ip;
+    VAR num peek_value;
+    VAR string received_data;
+    VAR string sendString;
+    VAR string cmdPart;
+    VAR string dataPart;
+
+    
+    VAR num x;
+    VAR num y;
+    VAR num z;
+    VAR num q1;
+    VAR num q2;
+    VAR num q3;
+    VAR num q4;
+  
+    
+    VAR robtarget curPose;
+    VAR robtarget targetPose;
+    VAR bool ok;
+
+    
+    
+FUNC bool GetNextNum(INOUT string s, INOUT num value)
+
+        VAR num commaPos;
+        VAR string part;
+        VAR bool conv_ok;
+        VAR string lastChar;
+
+        TPWrite "----- GetNextNum -----";
+        TPWrite "Vhodni string:";
+        TPWrite s;
+
+        commaPos := StrFind(s, 1, ",");
+
+        TPWrite "Polozaj vejice:";
+        TPWrite NumToStr(commaPos,0);
+
+        IF commaPos > 0 THEN
+            part := StrPart(s, 1, commaPos - 1);
+            s := StrPart(s, commaPos + 1, StrLen(s) - commaPos);
+           
+                !IF commaPos > 8 OR commaPos < 8 THEN   !comaPos notequal (8)   ne dela za zaključni niz, saj ni na koncu , ampak nek
+                !s := StrPart(s, commaPos + 1, StrLen(s) - commaPos);
+                !ENDIF
+        ELSE
+            part := s;
+            s := "";
+            TPWrite "ELSE";
+        ENDIF
+
+        TPWrite "Part:";
+        TPWrite part;
+        TPWrite "Preostanek s:";
+        TPWrite s;
+
+        conv_ok := StrToVal(part, value);  !Pretvorba dobljenega stringa(vrednost) v pozicijo/quaterlione (tipa robtarget)
+
+        IF conv_ok THEN
+            TPWrite "Pretvorba OK";
+        ELSE
+            TPWrite "Pretvorba NI OK";
+        ENDIF
+
+        TPWrite" VRNJENA VREDNOST";
+        TPWrite ValToStr (conv_ok);
+        
+        RETURN conv_ok;
+
+ENDFUNC
+
+
+
+
+FUNC bool ParsePose7(INOUT string s, INOUT num x, INOUT num y, INOUT num z, INOUT num q1, INOUT num q2, INOUT num q3, INOUT num q4)
+        IF NOT GetNextNum(s, x) THEN  !X prirejamo vrednost, ce ne uspe smo takoj ven konec pretvorbe 
+            RETURN FALSE;
+        ENDIF
+        IF NOT GetNextNum(s, y) THEN
+            RETURN FALSE;
+        ENDIF
+        IF NOT GetNextNum(s, z) THEN
+            RETURN FALSE;
+        ENDIF
+        IF NOT GetNextNum(s, q1) THEN
+            RETURN FALSE;
+        ENDIF 
+        IF NOT GetNextNum(s, q2) THEN
+            RETURN FALSE;
+        ENDIF
+        IF NOT GetNextNum(s, q3) THEN
+            RETURN FALSE;
+        ENDIF
+        TPWrite "ZADNJI STRING ZA Q4";
+        TPWrite s;
+        ! zadnjo vrednost vzemi iz celotnega preostanka stringa   To pol spremeni da bo GetNextNum
+       !IF NOT GetLastNum(s, q4) THEN
+            !TPWrite"Q4 NI USPEL";
+        !ENDIF
+        IF NOT StrToVal(s, q4) THEN    ! S je tuki že kar npr. 0.00066
+            TPWrite "Q4 NI USPEL";
+        RETURN FALSE;
+        ENDIF
+        
+        RETURN TRUE;
+ENDFUNC
+    
+    
+    
+   PROC main()
+
+        server_recover;
+        SocketSend client_socket \Str:="ACK";
+
+        WHILE TRUE DO
+
+            peek_value := SocketPeek(client_socket);
+
+            IF peek_value > 0 THEN
+
+                SocketReceive client_socket \Str:=received_data;
+
+                TPWrite "Prejeto:";
+                TPWrite received_data;
+                TPWrite "dolzina_stringa";
+                TPWrite NumToStr(StrLen(received_data), 0);
+
+                    IF StrLen(received_data) >= 4 AND StrPart(received_data,1,4) = "READ" THEN
+
+                        curPose := CRobT(\Tool:=tool0 \WObj:=wobj0);
+
+                        sendString :=
+                            NumToStr(curPose.trans.x, 6) + "," +
+                            NumToStr(curPose.trans.y, 6) + "," +
+                            NumToStr(curPose.trans.z, 6) + "," +
+                            NumToStr(curPose.rot.q1, 6) + "," +
+                            NumToStr(curPose.rot.q2, 6) + "," +
+                            NumToStr(curPose.rot.q3, 6) + "," +
+                            NumToStr(curPose.rot.q4, 6);
+
+                        SocketSend client_socket \Str:=sendString;
+                        
+              
+!*****************************  PREMIKANJE ROBOTA **********************************************
+                        
+                    ELSEIF StrLen(received_data) >= 6 AND StrPart(received_data,1,6) = "MOVEJ," THEN
+
+                        dataPart := StrPart(received_data, 7, StrLen(received_data) -7 );  
+                                                                                                !Length (num): The number of characters to extract.
+                                                                                            !If StartPos + Length exceeds the total string length, it returns the string from StartPos to the end.
+                        TPWrite "PODATKI_POZICIJE IN ORIENTACIJE:";
+                        TPWrite dataPart;                       !STRINGI SO OMEJENI NA DO 80 ELEMENTOV, pazi pri python scripti kako pošiljaš                                  
+                       
+                        ok := ParsePose7(dataPart, x, y, z, q1, q2, q3, q4);
+
+                         TPWrite "PODATKI_POZICIJE";
+                        
+                        IF ok THEN
+                            targetPose.trans.x := x;
+                            targetPose.trans.y := y;
+                            targetPose.trans.z := z;
+
+                            targetPose.rot.q1 := q1;
+                            targetPose.rot.q2 := q2;
+                            targetPose.rot.q3 := q3;
+                            targetPose.rot.q4 := q4;
+
+                            targetPose.robconf := [0,0,0,0];                !konstante
+                            targetPose.extax := [9E9,9E9,9E9,9E9,9E9,9E9];
+                                                                                    
+                                                                                            !ZA NAS so zadnji dve polji konst.    
+                            !Lahko bi bilo: targetPose := [[x,y,z],[q1,q2,q3,q4],[0,0,0,0],[9E9,9E9,9E9,9E9,9E9,9E9]];
+                            
+                            TPWrite "PRETVORBA USPELA!!";
+                            TPWrite "MOVEJ:";
+                            MoveJ targetPose, v50, fine, tool0;     !V prihodnosti, lahko pošiljaš tudi hitrost, koordinatni sistem(tool) in zone
+                            SocketSend client_socket \Str:="OK";
+                        ELSE
+                            TPWrite "PRETVORBA NI USPELA";
+                            TPWrite "Napaka parsanja MOVEJ";
+                            SocketSend client_socket \Str:="NOK_PARSE";
+                        ENDIF
+
+                    ELSEIF StrLen(received_data) >= 6 AND StrPart(received_data,1,6) = "MOVEL," THEN
+
+                        dataPart := StrPart(received_data, 7, StrLen(received_data) - 6);
+
+                        TPWrite "PODATKI_POZICIJE IN ORIENTACIJE:";
+                        TPWrite dataPart;
+                        
+                        ok := ParsePose7(dataPart, x, y, z, q1, q2, q3, q4);
+
+                        IF ok THEN
+                            targetPose.trans.x := x;
+                            targetPose.trans.y := y;
+                            targetPose.trans.z := z;
+
+                            targetPose.rot.q1 := q1;
+                            targetPose.rot.q2 := q2;
+                            targetPose.rot.q3 := q3;
+                            targetPose.rot.q4 := q4;
+
+                            targetPose.robconf := [0,0,0,0];
+                            targetPose.extax := [9E9,9E9,9E9,9E9,9E9,9E9];
+
+                            TPWrite "MOVEL";
+                            MoveL targetPose, v20, fine, tool0;
+                            SocketSend client_socket \Str:="OK";
+                        ELSE
+                            TPWrite "Napaka parsanja MOVEL";
+                            SocketSend client_socket \Str:="NOK_PARSE";
+                        ENDIF   
+! Lahko dodaš moveC
+
+                        
+                        
+!*************************** GRIPPER *********************************************
+                    ELSEIF StrLen(received_data) >= 5 AND StrPart(received_data,1,5) = "IOONN" THEN
+
+                        TPWrite "Zapiram prijemalo";
+                        SetDO ABB_Scalable_IO_0_DO1, 1;
+                        WaitTime 2;
+                        SocketSend client_socket \Str:="OK_prijemalo_zaprto";
+
+                    ELSEIF StrLen(received_data) >= 5 AND StrPart(received_data,1,5) = "IOOFF" THEN
+
+                        TPWrite "Odpiram prijemalo";
+                        SetDO ABB_Scalable_IO_0_DO1, 0;
+                        WaitTime 2;
+                        SocketSend client_socket \Str:="OK_prijemalo_odprto";
+
+                    ELSE
+                        SocketSend client_socket \Str:="NeznanUkaz";
+                        TPWrite "NeznanUkaz";
+                    ENDIF
+                ENDIF
+            
+
+            WaitTime 0.05;
+
+        ENDWHILE
+
+    ERROR
+        IF ERRNO = ERR_SOCK_CLOSED THEN
+            server_recover;
+            RETRY;
+        ELSEIF ERRNO = ERR_SOCK_TIMEOUT THEN
+            RETRY;
+        ELSE
+            TPWrite "MAIN ERRNO: " + NumToStr(ERRNO,0);
+            STOP;
+        ENDIF
+
+    ENDPROC
+
+    PROC server_recover()
+        SocketClose server_socket;
+        SocketClose client_socket;
+        SocketCreate server_socket;
+        SocketBind server_socket, "192.168.125.1", 5000;
+        SocketListen server_socket;
+        TPWrite "Cakam klienta...";
+        SocketAccept server_socket, client_socket \ClientAddress:=client_ip;
+        TPWrite "Client connected: " + client_ip;
+    ENDPROC
+
+ENDMODULE
