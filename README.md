@@ -27,7 +27,7 @@ Python (Client) ↔ TCP Socket ↔ ABB Robot (RAPID Server)
 | IOONN | Close gripper |
 | IOOFF | Open gripper |
 
-## 📂 Project Structure
+
 
 
 
